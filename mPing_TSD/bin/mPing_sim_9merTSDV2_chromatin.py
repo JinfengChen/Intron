@@ -13,8 +13,40 @@ def usage():
     message='''
 python mPing_sim_9merTSD.py --input pictogram/somatic.tsd.matrix --output simulate_TSD9mer_somaticMat
 
+V2: all chromosome in one sequence
     '''
     print message
+
+def blackchroms(infile):
+    data = defaultdict(str)
+    with open (infile, 'r') as filehd:
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2:
+                unit = re.split(r'\t',line)
+                data[unit[1] + '_' + unit[2]] = unit[0] 
+    return data
+
+def convert_position(start, end, chroms):
+    for p in sorted(chroms.keys()):
+        p1 = re.split(r'_', p)   
+        if start >= int(p1[0]) and end <= int(p1[1]):
+            start1 = start - int(p1[0])
+            end1   = end - int(p1[0])
+            return chroms[p], start1, end1
+
+
+def blacklist(infile):
+    data = defaultdict(int)
+    with open (infile, 'r') as filehd:
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2: 
+                unit = re.split(r'\t',line)
+                data[unit[0]] = 1
+    return data
+
+
 
 def fasta(fastafile):
     fastaid = defaultdict(str)
@@ -72,22 +104,35 @@ def validdna(dna):
             flag = 0
     return flag
 
-def insertion_in_genome(fastaseq, fastalen, matrix):
+
+def insertion_in_genome(fastaseq, fastalen, matrix, blacks, chroms, dhs):
     data = []
     mping = 0
+    dhs_pos= sorted(dhs.keys(), key=int) 
     while (mping == 0):
-        chrn = random.randint(1,12)
-        chri = 'Chr' + str(chrn)
+        #chrn = random.randint(1,12)
+        #chri = 'Chr' + str(chrn)
+        chri = 'Chr1'
         seq = fastaseq[chri]
-        rpos = random.randint(1,fastalen[chri]-10)
+        rpos = random.randint(1,fastalen[chri])
+        #test if in open chromatin
+        open_chromatin = 0
+        interval  = binarySearch(dhs_pos, rpos) 
+        dhs_s = dhs_pos[interval[0]]
+        dhs_e = dhs_pos[interval[1]]
+        if data[dhs_s] == data[dhs_e]:
+            open_chromatin = 1
+        
+        if blacks.has_key(rpos):
+            continue
         s    = rpos-1
         e    = s + 9 
         sitep = seq[s:e]
         if not validdna(sitep):
             continue
         siten = revcom(sitep) 
-        probp = 1.00
-        probn = 1.00
+        probp = 1.00 #plus strand
+        probn = 1.00 #minus strand
         for i in range(0,9):
             basep = sitep[i]
             basen = siten[i]
@@ -97,15 +142,19 @@ def insertion_in_genome(fastaseq, fastalen, matrix):
         site = sitep if probp == prob else siten
         rn = random.random()
         if rn <= prob:
-            mping = 1
-            start = s + 3
-            end   = s + 5
-            data = [chri, str(start), str(end), site]
-            print '%s\t%s\t%s' %(chri, str(start), str(end))
+            rn_chromatin = random.random()
+            #insert when open chromatin, or 20%? (need to verify the correct rate) rate if not open chromatin 
+            if open_chromatin == 1 or (open_chromatin == 0 and rn_chromatin < 0.2):
+                mping = 1
+                start = s + 3
+                end   = s + 5
+                chr1, start1, end1 = convert_position(start, end, chroms)
+                data = [chr1, str(start1), str(end1), site]
+                print '%s\t%s\t%s' %(chr1, str(start1), str(end1))
     return data
 
 
-def simulate(fastaseq, fastalen, matrix, outdir, number):
+def simulate(fastaseq, fastalen, matrix, outdir, number, blacks, chroms, dhs):
     data = defaultdict(list)
     cmd0 = 'mkdir %s' %(outdir)
     os.system(cmd0)
@@ -114,8 +163,8 @@ def simulate(fastaseq, fastalen, matrix, outdir, number):
         filename = 'Simulate' + sufix + '.gff'
         tempgff  = 'Temp' + sufix + '.gff'
         ofile = open (tempgff, 'w')
-        for i in range(1,3068):
-            mping = insertion_in_genome(fastaseq, fastalen, matrix) 
+        for i in range(1,3070):
+            mping = insertion_in_genome(fastaseq, fastalen, matrix, blacks, chroms, dhs) 
             print >> ofile, '%s\tSimulate\tmPing\t%s\t%s\t.\t.\t.\tID=mPing_%s' %(mping[0], mping[1], mping[2], i)
         ofile.close()
         cmd1 = 'sort -k1,1 -k4,4n %s > %s' %(tempgff, filename)
@@ -135,6 +184,42 @@ def simulate(fastaseq, fastalen, matrix, outdir, number):
         os.system(cmd7)
     return data
 
+def binarySearch(data, val):
+    highIndex = len(data)-1
+    lowIndex = 0
+    while highIndex > lowIndex:
+            index = (highIndex + lowIndex) / 2
+            sub = int(data[index])
+            #print highIndex, index, lowIndex, sub, val
+            if data[lowIndex] == val:
+                    return [lowIndex, lowIndex]
+            elif sub == val:
+                    return [index, index]
+            elif data[highIndex] == val:
+                    return [highIndex, highIndex]
+            elif sub > val:
+                    if highIndex == index:
+                            return sorted([highIndex, lowIndex])
+                    highIndex = index
+            else:
+                    if lowIndex == index:
+                            return sorted([highIndex, lowIndex])
+                    lowIndex = index
+    return sorted([highIndex, lowIndex])
+
+#Chr1    DHS     DHsites 10537   10645   .       +       .       ID=1;
+#Chr1    DHS     DHsites 10785   11022   .       +       .       ID=2;
+def read_gff(infile):
+    data = defaultdict(lambda : str())
+    with open (infile, 'r') as filehd:
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2 and line.startswith(r'Chr'): 
+                unit = re.split(r'\t',line)
+                idx  = '%s_%s_%s' %(unit[0], unit[3], unit[4])
+                data[unit[3]] = idx
+                data[unit[4]] = idx
+    return data
 
 def main():
     parser = argparse.ArgumentParser()
@@ -157,10 +242,14 @@ def main():
         sys.exit(2)
    
  
-    ref = '/rhome/cjinfeng/BigData/00.RD/seqlib/MSU_r7.fa'
+    #ref = '/rhome/cjinfeng/BigData/00.RD/seqlib/MSU_r7.fa'
+    ref = 'MSU7.Simulation.Genome.fa'
     fastaseq, fastalen = fasta(ref)
     matrix = readmatrix(args.input)
-    simulate(fastaseq, fastalen, matrix, args.output, args.number)     
+    blacks = blacklist('MSU7.Simulation.Blacklist')
+    chroms = blackchroms('MSU7.Simulation.Chr')
+    dhs    = read_gff('../input/GSM655033_Rice_Seedling_DHsites.MSU7.Corrected.1chr.gff')
+    simulate(fastaseq, fastalen, matrix, args.output, args.number, blacks, chroms, dhs)
     
 
 if __name__ == '__main__':

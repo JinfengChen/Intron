@@ -11,10 +11,43 @@ import random
 def usage():
     test="name"
     message='''
-python mPing_sim_9merTSD.py --input pictogram/somatic.tsd.matrix --output simulate_TSD9mer_somaticMat
+python mPing_sim_9merTSDV2_Random.py --input pictogram/somatic.tsd.matrix --output simulate_TSD9mer_somaticMat
 
+V2: all chromosome in one sequence
+Random: do not use TSD frequency, random pick loci and insert
     '''
     print message
+
+def blackchroms(infile):
+    data = defaultdict(str)
+    with open (infile, 'r') as filehd:
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2:
+                unit = re.split(r'\t',line)
+                data[unit[1] + '_' + unit[2]] = unit[0] 
+    return data
+
+def convert_position(start, end, chroms):
+    for p in sorted(chroms.keys()):
+        p1 = re.split(r'_', p)   
+        if start >= int(p1[0]) and end <= int(p1[1]):
+            start1 = start - int(p1[0])
+            end1   = end - int(p1[0])
+            return chroms[p], start1, end1
+
+
+def blacklist(infile):
+    data = defaultdict(int)
+    with open (infile, 'r') as filehd:
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2: 
+                unit = re.split(r'\t',line)
+                data[unit[0]] = 1
+    return data
+
+
 
 def fasta(fastafile):
     fastaid = defaultdict(str)
@@ -72,22 +105,26 @@ def validdna(dna):
             flag = 0
     return flag
 
-def insertion_in_genome(fastaseq, fastalen, matrix):
+
+def insertion_in_genome(fastaseq, fastalen, matrix, blacks, chroms):
     data = []
     mping = 0
     while (mping == 0):
-        chrn = random.randint(1,12)
-        chri = 'Chr' + str(chrn)
+        #chrn = random.randint(1,12)
+        #chri = 'Chr' + str(chrn)
+        chri = 'Chr1'
         seq = fastaseq[chri]
-        rpos = random.randint(1,fastalen[chri]-10)
+        rpos = random.randint(1,fastalen[chri])
+        if blacks.has_key(rpos):
+            continue
         s    = rpos-1
         e    = s + 9 
         sitep = seq[s:e]
         if not validdna(sitep):
             continue
         siten = revcom(sitep) 
-        probp = 1.00
-        probn = 1.00
+        probp = 1.00 #plus strand
+        probn = 1.00 #minus strand
         for i in range(0,9):
             basep = sitep[i]
             basen = siten[i]
@@ -95,17 +132,19 @@ def insertion_in_genome(fastaseq, fastalen, matrix):
             probn = probn*matrix[basen][i]
         prob = max(probp, probn)
         site = sitep if probp == prob else siten
-        rn = random.random()
-        if rn <= prob:
+        #rn = random.random()
+        #if rn <= prob:
+        if 1:
             mping = 1
             start = s + 3
             end   = s + 5
-            data = [chri, str(start), str(end), site]
-            print '%s\t%s\t%s' %(chri, str(start), str(end))
+            chr1, start1, end1 = convert_position(start, end, chroms)
+            data = [chr1, str(start1), str(end1), site]
+            print '%s\t%s\t%s' %(chr1, str(start1), str(end1))
     return data
 
 
-def simulate(fastaseq, fastalen, matrix, outdir, number):
+def simulate(fastaseq, fastalen, matrix, outdir, number, blacks, chroms):
     data = defaultdict(list)
     cmd0 = 'mkdir %s' %(outdir)
     os.system(cmd0)
@@ -114,8 +153,8 @@ def simulate(fastaseq, fastalen, matrix, outdir, number):
         filename = 'Simulate' + sufix + '.gff'
         tempgff  = 'Temp' + sufix + '.gff'
         ofile = open (tempgff, 'w')
-        for i in range(1,3068):
-            mping = insertion_in_genome(fastaseq, fastalen, matrix) 
+        for i in range(1,3070):
+            mping = insertion_in_genome(fastaseq, fastalen, matrix, blacks, chroms) 
             print >> ofile, '%s\tSimulate\tmPing\t%s\t%s\t.\t.\t.\tID=mPing_%s' %(mping[0], mping[1], mping[2], i)
         ofile.close()
         cmd1 = 'sort -k1,1 -k4,4n %s > %s' %(tempgff, filename)
@@ -157,10 +196,13 @@ def main():
         sys.exit(2)
    
  
-    ref = '/rhome/cjinfeng/BigData/00.RD/seqlib/MSU_r7.fa'
+    #ref = '/rhome/cjinfeng/BigData/00.RD/seqlib/MSU_r7.fa'
+    ref = 'MSU7.Simulation.Genome.fa'
     fastaseq, fastalen = fasta(ref)
     matrix = readmatrix(args.input)
-    simulate(fastaseq, fastalen, matrix, args.output, args.number)     
+    blacks = blacklist('MSU7.Simulation.Blacklist')
+    chroms = blackchroms('MSU7.Simulation.Chr')
+    simulate(fastaseq, fastalen, matrix, args.output, args.number, blacks, chroms)
     
 
 if __name__ == '__main__':

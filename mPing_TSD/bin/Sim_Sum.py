@@ -63,8 +63,8 @@ def readtable(files, outfile):
                 freq[unit[0]].append(float(unit[3]))
         filehd.close()
     for r in sorted(name.keys(), key=int):
-        nm, nl, nh = ci95_sem(number[r])
-        fm, fl, fh = ci95_sem(freq[r])
+        nm, nl, nh = ci95(number[r])
+        fm, fl, fh = ci95(freq[r])
         print >> ofile, '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' %(r, name[r], nm, fm, nl, nh, fl, fh)
     ofile.close()
 
@@ -98,9 +98,40 @@ def readtable1(files, outfile):
                 number[unit[0]].append(float(unit[1]))
         filehd.close()
     for r in sorted(number.keys(), key=int):
-        nm, nl, nh = ci95_sem(number[r])
+        nm, nl, nh = ci95(number[r])
         print >> ofile, '%s\t%s\t%s\t%s' %(r, nm, nl, nh)
     ofile.close()
+
+
+'''
+intergenic	2474	0.807968647943
+five_prime_UTR	95	0.0310254735467
+CDS	91	0.0297191378184
+intron	281	0.0917700849118
+three_prime_UTR	92	0.0300457217505
+mRNA	28	0.00914435009798
+'''
+
+def readtable2(files, outfile):
+    ofile = open(outfile, 'w')
+    name = defaultdict(lambda: str)
+    number = defaultdict(list)
+    freq   = defaultdict(list)
+    for infile in files:
+        filehd = open (infile, 'r')
+        for line in filehd:
+            line = line.rstrip()
+            if len(line) > 2:
+                unit = re.split(r'\t',line)
+                number[unit[0]].append(float(unit[1]))
+                freq[unit[0]].append(float(unit[2]))
+        filehd.close()
+    for r in sorted(number.keys()):
+        nm, nl, nh = ci95(number[r])
+        fm, fl, fh = ci95(freq[r])
+        print >> ofile, '%s\t%s\t%s\t%s\t%s\t%s\t%s' %(r, nm, fm, nl, nh, fl, fh)
+    ofile.close()
+
 
 
 
@@ -126,22 +157,34 @@ def ci95(x):
     right= mean + error
     return mean, left, right
 
-def intron_length(filepath):
+def intron_length(filepath, prefix):
     files = glob.glob(filepath + '/*.intron.length.distr')
-    readtable(files, 'Simulation.intron.length.distr')
+    readtable(files, prefix + '.intron.length.distr')
 
-def intron_distance(filepath):
+def intron_distance(filepath, prefix):
     files = glob.glob(filepath + '/*.intron.distance.distr')
-    readtable(files, 'Simulation.intron.distance.distr')
+    readtable(files, prefix + '.intron.distance.distr')
 
-def gene_distance(filepath):
+def gene_distance(filepath, prefix):
     files = glob.glob(filepath + '/*.gene.distance.distr')
-    readtable(files, 'Simulation.gene.distance.distr')    
+    readtable(files, prefix + '.gene.distance.distr')    
 
-def intron_position(filepath):
+def intron_position(filepath, prefix):
     files = glob.glob(filepath + '/*.intron_pos.distr')
-    readtable1(files, 'Simulation.intron_pos.distr') 
-   
+    readtable1(files, prefix + '.intron_pos.distr') 
+
+def gene_position(filepath, prefix):   
+    files = glob.glob(filepath + '/*.position.distr')
+    readtable(files, prefix + '.position.distr')
+
+def Five_distance(filepath, prefix):
+    files = glob.glob(filepath + '/*.mRNA.5primer.distance.distr')
+    readtable(files, prefix + '.mRNA.5primer.distance.distr')
+
+def Three_distance(filepath, prefix):
+    files = glob.glob(filepath + '/*.mRNA.3primer.distance.distr')
+    readtable(files, prefix + '.mRNA.3primer.distance.distr')
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--input')
@@ -153,12 +196,18 @@ def main():
     except:
         usage()
         sys.exit(2)
+
+    if args.output is None:
+        args.output = 'Simulation_TSD9mer_somaticMat'    
  
-    intron_length(args.input)
-    intron_distance(args.input)
-    gene_distance(args.input)
-    intron_position(args.input)
-    
+    intron_length(args.input, args.output)
+    intron_distance(args.input, args.output)
+    gene_distance(args.input, args.output)
+    intron_position(args.input, args.output)
+    gene_position(args.input, args.output)
+    Five_distance(args.input, args.output)
+    Three_distance(args.input, args.output)
+ 
     x = [2,3,5,6,9]
     ci95(x)
     ci95_sem(x)
